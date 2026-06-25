@@ -131,7 +131,7 @@ rate-limiting and per-device isolation without exposing the master key.
 
 | Arg | Default | Purpose |
 |---|---|---|
-| `VITE_BASE_PATH` | `/` | URL prefix the SPA is served from. Set to `/tagger/` if behind a Caddy sub-path. |
+| `VITE_BASE_PATH` | `/tagger/` | URL prefix the SPA is served from. Override with `--build-arg VITE_BASE_PATH=/` for root hosting (e.g. `http://localhost:8082/`). |
 | `LITELLM_UPSTREAM` | `http://localhost:4000` | URL the nginx `/api/litellm/` reverse proxy points to. |
 
 Or via `.env` in the same dir as `docker-compose.yml`:

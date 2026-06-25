@@ -32,7 +32,9 @@ services:
       context: .
       args:
         LITELLM_UPSTREAM: ${LITELLM_UPSTREAM:-http://localhost:4000}
-        VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
+        # Default to /tagger/ since this fork is deployed behind Caddy at /tagger/.
+        # For root hosting, set VITE_BASE_PATH=/ in .env or export before build.
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/tagger/}
     container_name: audiobook-tagger
     ports:
       - "${TAGGER_PORT:-8082}:80"
