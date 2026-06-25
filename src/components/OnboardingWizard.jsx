@@ -90,6 +90,9 @@ export function WelcomeModal({ onDismiss, onStartWizard }) {
 const AI_MODELS = [
   { id: 'gpt-5.4-nano', label: 'GPT-5.4 Nano (Recommended)', provider: 'openai', cost: '~$0.01/book' },
   { id: 'gpt-5-nano', label: 'GPT-5 Nano (Cheapest)', provider: 'openai', cost: '~$0.003/book' },
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai', cost: '~$0.005/book' },
+  { id: 'minimax-m3', label: 'MiniMax M3 (via LiteLLM)', provider: 'openai', cost: '~$0.005/book' },
+  { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash (via LiteLLM)', provider: 'openai', cost: '~$0.002/book' },
   { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'anthropic', cost: '~$0.01/book' },
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'anthropic', cost: '~$0.05/book' },
 ];

@@ -1315,25 +1315,32 @@ export function ScannerPage({ onNavigateToSettings, activeTab, navigateTo, logoS
         })
       );
 
-      // Update groups with ISBN/ASIN
+      // Update groups with ISBN/ASIN/publisher/year/narrator
       setGroups(prevGroups => {
         return prevGroups.map(g => {
           const batchResult = results.find(r => r.status === 'fulfilled' && r.value.groupId === g.id);
           if (batchResult && batchResult.status === 'fulfilled') {
             const { result } = batchResult.value;
-            if (result.success && (result.isbn || result.asin)) {
+            if (result.success && (result.isbn || result.asin || result.publisher || result.year)) {
               successCount++;
               const fields = new Set(g.changedFields || []);
               if (result.isbn) fields.add('isbn');
               if (result.asin) fields.add('asin');
+              if (result.publisher) fields.add('publisher');
+              if (result.year) fields.add('year');
+              if (result.narrator) fields.add('narrator');
               return {
                 ...g,
                 metadata: {
                   ...g.metadata,
                   isbn: result.isbn || g.metadata?.isbn,
                   asin: result.asin || g.metadata?.asin,
+                  publisher: result.publisher || g.metadata?.publisher,
+                  year: result.year || g.metadata?.year,
+                  publishedYear: result.year || g.metadata?.publishedYear,
+                  narrator: result.narrator || g.metadata?.narrator,
                 },
-                total_changes: (g.total_changes || 0) + 1,
+                total_changes: (g.total_changes || 0) + (fields.size - (g.changedFields?.length || 0)),
                 changedFields: [...fields],
               };
             } else {

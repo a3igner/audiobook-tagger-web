@@ -35,6 +35,12 @@ const AI_MODELS = [
   { id: 'gpt-5.4-mini',        label: 'GPT-5.4 Mini',                 inputPrice: 0.75,  outputPrice: 4.50,  desc: 'Higher quality. Use for difficult or ambiguous metadata.', provider: 'openai' },
   { id: 'gpt-4o-mini',         label: 'GPT-4o Mini (Legacy)',          inputPrice: 0.15,  outputPrice: 0.60,  desc: 'Older model (Oct 2023 knowledge). Being phased out.', provider: 'openai' },
   { id: 'gpt-4o',              label: 'GPT-4o',                       inputPrice: 2.50,  outputPrice: 10.00, desc: 'Premium quality but expensive. For edge cases only.', provider: 'openai' },
+  // Local / proxied via LiteLLM (register matching id in LiteLLM, then point base URL at it)
+  // NOTE: LiteLLM distinguishes "model groups" (aliases, no deployments) from real
+  // deployments (with provider/model in litellm_params). The IDs here MUST match
+  // a registered LiteLLM model that has at least one healthy deployment.
+  { id: 'minimax-m3',           label: 'MiniMax M3 (via LiteLLM)',     inputPrice: 0.10,  outputPrice: 0.40,  desc: 'Local proxied model. NOTE: thinking model — returns reasoning_content only, may show empty results in the tagger.', provider: 'openai' },
+  { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash (via LiteLLM)', inputPrice: 0.05,  outputPrice: 0.15,  desc: 'Fast DeepSeek variant via LiteLLM. Good for batch enrichment. Note the slash prefix — required by LiteLLM.', provider: 'openai' },
   // Anthropic Claude
   { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (Fast & Cheap)', inputPrice: 0.80, outputPrice: 4.00, desc: 'Fast and affordable. Great for structured extraction.', provider: 'anthropic' },
   { id: 'claude-sonnet-4-6',   label: 'Claude Sonnet 4.6',            inputPrice: 3.00,  outputPrice: 15.00, desc: 'Best quality Claude model. Excellent at nuanced metadata.', provider: 'anthropic' },
@@ -114,12 +120,14 @@ const PromptEditor = ({ label, subtitle, value, defaultValue, onChange, rows = 6
   );
 };
 
-/** Validate ABS server URL — must be HTTPS (or localhost for dev). */
+/** Validate ABS server URL — must be HTTPS, but allow HTTP for localhost / private IPs (self-hosted setups behind Caddy). */
 const PRIVATE_IP_PATTERNS = [
   /^localhost$/i, /^127\./, /^10\./, /^192\.168\./,
   /^172\.(1[6-9]|2\d|3[01])\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,  // Tailscale CGNAT
   /^169\.254\./, /^0\.0\.0\.0$/,
 ];
+const isLocalAbsHost = (host) =>
+  host === 'localhost' || host === '127.0.0.1' || PRIVATE_IP_PATTERNS.some(p => p.test(host));
 
 function getUrlWarning(url) {
   if (!url || !url.trim()) return null;
@@ -127,11 +135,11 @@ function getUrlWarning(url) {
     const parsed = new URL(url.trim());
     const host = parsed.hostname;
 
-    // Check HTTP (not HTTPS)
-    if (parsed.protocol === 'http:' && host !== 'localhost' && host !== '127.0.0.1') {
+    // Check HTTP (not HTTPS) — only warn for non-local hosts
+    if (parsed.protocol === 'http:' && !isLocalAbsHost(host)) {
       return {
         type: 'http',
-        message: 'The web version requires HTTPS. Your server uses HTTP which browsers block for security. Options: (1) Use the desktop app (works with any server), (2) Put your ABS server behind a reverse proxy with HTTPS (Caddy makes this easy).',
+        message: 'The web version requires HTTPS for non-local servers. Your server uses HTTP which browsers block for security. Options: (1) Use the desktop app (works with any server), (2) Put your ABS server behind a reverse proxy with HTTPS (Caddy makes this easy).',
       };
     }
 
@@ -153,8 +161,9 @@ function validateAbsUrl(url) {
   if (!url || !url.trim()) return null; // empty is OK (not configured yet)
   try {
     const parsed = new URL(url.trim());
-    if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
-      return 'Server URL must use HTTPS (except localhost for local development)';
+    // Allow HTTP only for localhost / private IPs (self-hosted behind Caddy)
+    if (parsed.protocol !== 'https:' && !isLocalAbsHost(parsed.hostname)) {
+      return 'Server URL must use HTTPS (or be a localhost / private IP for self-hosted setups)';
     }
     return null; // valid
   } catch {
@@ -477,10 +486,14 @@ export function SettingsPage({ activeTab, navigateTo, logoSvg, onOpenWizard }) {
                       onChange={(e) => {
                           const model = AI_MODELS.find(m => m.id === e.target.value);
                           const isAnthropic = model?.provider === 'anthropic';
+                          const defaultUrl = isAnthropic ? 'https://api.anthropic.com' : 'https://api.openai.com';
+                          // Preserve a user-set custom base URL; only auto-set if it's empty or a known default
+                          const cur = localConfig.ai_base_url;
+                          const isCustom = cur && cur !== 'https://api.openai.com' && cur !== 'https://api.anthropic.com';
                           setLocalConfig({
                             ...localConfig,
                             ai_model: e.target.value,
-                            ai_base_url: isAnthropic ? 'https://api.anthropic.com' : 'https://api.openai.com',
+                            ai_base_url: isCustom ? cur : defaultUrl,
                           });
                       }}
                       className="w-full px-4 py-3 bg-neutral-800 border border-neutral-700 rounded-lg text-base text-white focus:outline-none cursor-pointer"
@@ -500,6 +513,28 @@ export function SettingsPage({ activeTab, navigateTo, logoSvg, onOpenWizard }) {
                         })}
                       </optgroup>
                     </select>
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-sm text-gray-400">Custom API Base URL <span className="text-gray-600">(optional)</span></label>
+                        {localConfig.ai_base_url && localConfig.ai_base_url !== 'https://api.openai.com' && localConfig.ai_base_url !== 'https://api.anthropic.com' && (
+                          <button
+                            onClick={() => setLocalConfig({ ...localConfig, ai_base_url: '' })}
+                            className="text-xs text-amber-500/80 hover:text-amber-400"
+                          >
+                            Reset to default
+                          </button>
+                        )}
+                      </div>
+                      <Input
+                        type="text"
+                        value={localConfig.ai_base_url || ''}
+                        onChange={(v) => setLocalConfig({ ...localConfig, ai_base_url: v })}
+                        placeholder="https://api.openai.com"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Point at any OpenAI-compatible endpoint (e.g. <code className="text-gray-400 bg-neutral-800 px-1 rounded">http://litellm.home</code> to route through your local LiteLLM proxy). Leave blank for the default endpoint for the selected model.
+                      </p>
+                    </div>
                     {(() => {
                       const m = AI_MODELS.find(m => m.id === (localConfig.ai_model || 'gpt-5-nano'));
                       if (!m) return null;

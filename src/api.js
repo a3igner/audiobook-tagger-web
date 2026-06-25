@@ -1026,47 +1026,66 @@ Return JSON: {"year":"2005"}`;
     } catch { return null; }
   },
 
-  // === ISBN/ASIN Lookup (via Caddy proxy to Audible + Open Library) ===
+  // === ISBN/ASIN/Publisher/Year/Narrator Lookup (via nginx proxy to Audible + Open Library) ===
   lookup_book_isbn: async (args) => {
     const { title, author } = args.request || args;
     if (!title) return { success: false, error: 'No title' };
 
     let isbn = null;
     let asin = null;
+    let publisher = null;
+    let year = null;
+    let narrator = null;
+    const sources = [];
 
-    // ASIN via Audible public catalog API (proxied through Caddy)
+    // ASIN + audiobook publisher + (sometimes) print ISBN + narrator, via Audible public catalog
     try {
       const titleParam = encodeURIComponent(title);
       const authorParam = encodeURIComponent(author || '');
-      const audibleRes = await fetch(`/api/audible/1.0/catalog/products?title=${titleParam}&author=${authorParam}&num_results=3&response_groups=product_desc`);
+      const audibleRes = await fetch(`/api/audible/1.0/catalog/products?title=${titleParam}&author=${authorParam}&num_results=3&response_groups=product_desc,product_details,media`);
       if (audibleRes.ok) {
         const data = await audibleRes.json();
         const products = data.products || [];
         if (products.length > 0) {
           const titleLower = title.toLowerCase();
           const match = products.find(p => p.title?.toLowerCase() === titleLower) || products[0];
-          asin = match.asin;
+          asin = match.asin || null;
+          publisher = match.publisher_name || match.publication_name || null;
+          if (Array.isArray(match.narrators) && match.narrators.length > 0) {
+            narrator = match.narrators.map(n => n.name).filter(Boolean).join(', ');
+          }
+          if (!isbn && match.isbn) isbn = match.isbn;
+          if (asin) sources.push('audible');
         }
       }
     } catch {}
 
-    // ISBN via Open Library (proxied through Caddy)
+    // ISBN + first_publish_year + publisher list, via Open Library
     try {
       const query = encodeURIComponent(`${title} ${author || ''}`);
-      const olRes = await fetch(`/api/openlibrary/search.json?q=${query}&limit=5&fields=isbn,title,author_name`);
+      const olRes = await fetch(`/api/openlibrary/search.json?q=${query}&limit=5&fields=isbn,title,author_name,publisher,first_publish_year`);
       if (olRes.ok) {
         const data = await olRes.json();
         for (const doc of (data.docs || [])) {
-          if (doc.isbn?.length > 0) {
+          if (!isbn && doc.isbn?.length > 0) {
             isbn = doc.isbn.find(i => i.length === 13) || doc.isbn[0];
-            break;
           }
+          if (!year && doc.first_publish_year) {
+            year = String(doc.first_publish_year);
+          }
+          if (!publisher && Array.isArray(doc.publisher) && doc.publisher.length > 0) {
+            // Prefer English-language / common publishers (skip obvious non-English ones)
+            const enPub = doc.publisher.find(p => /[a-zA-Z]/.test(p) && !/[À-ſ]/.test(p.replace(/[a-zA-Z]/g, '')));
+            publisher = enPub || doc.publisher[0];
+          }
+          if (isbn && year && publisher) break;
         }
+        if (isbn || year || publisher) sources.push('openlibrary');
       }
     } catch {}
 
-    if (isbn || asin) {
-      return { success: true, isbn, asin };
+    if (isbn || asin || publisher || year) {
+      return { success: true, isbn, asin, publisher, year, narrator, sources };
     }
     return { success: false, error: 'Not found' };
   },

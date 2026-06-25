@@ -1,14 +1,39 @@
-# Audiobook Tagger — Docker Compose
-# Usage: docker compose up -d
-# Access: http://localhost:8080 (or your server IP)
+# Audiobook Tagger — Docker Compose (self-hosted web version)
 #
-# For Unraid: Copy this to your appdata folder and run docker compose up -d
-# Tip: Self-hosting over HTTP means your ABS server can also be HTTP — no HTTPS needed!
+# Source: https://github.com/a3igner/audiobook-tagger-web (forked from
+#         https://github.com/philipvox/audiobook-tagger-web)
+#
+# Quick start:
+#   docker compose up -d
+#   open http://localhost:8082 in your browser
+#
+# Configuration (in the web UI's Settings page after first launch):
+#   - ABS URL:    your AudiobookShelf URL (e.g. http://audiobookshelf.home:13378)
+#   - AI model:   pick any from the dropdown
+#   - OpenAI API Key + Custom API Base URL: only if you want to route AI calls
+#                 through your own LiteLLM proxy. Set:
+#                   Base URL:   /api/litellm
+#                   Key:        your LiteLLM master key (or a virtual key)
+#
+# Behind a reverse proxy (Caddy, nginx, etc.) at a sub-path:
+#   docker build --build-arg VITE_BASE_PATH=/tagger/ .
+#   and add the corresponding reverse_proxy in your Caddyfile (see README).
+#
+# Build args:
+#   LITELLM_UPSTREAM   URL of your LiteLLM server. Default: http://localhost:4000
+#                      Used by the nginx /api/litellm/ reverse proxy.
+#                      Override: --build-arg LITELLM_UPSTREAM=http://your-litellm:4000
+#   VITE_BASE_PATH     URL prefix for the SPA. Default: /
+#                      Override: --build-arg VITE_BASE_PATH=/tagger/
 
 services:
   audiobook-tagger:
-    build: .
+    build:
+      context: .
+      args:
+        LITELLM_UPSTREAM: ${LITELLM_UPSTREAM:-http://localhost:4000}
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
     container_name: audiobook-tagger
     ports:
-      - "8080:80"
+      - "${TAGGER_PORT:-8082}:80"
     restart: unless-stopped
